@@ -1,4 +1,4 @@
-import { Telegraf } from 'telegraf';
+import { Telegraf, session } from 'telegraf';
 import { message } from 'telegraf/filters';
 import { code } from 'telegraf/format';
 import config from 'config';
@@ -7,7 +7,24 @@ import { openai } from './openai.js';
 
 const bot = new Telegraf(config.get('TELEGRAM_TOKEN'));
 
+const INITIAL_SESSION = {
+  messages: [],
+};
+
+bot.use(session());
+
+bot.command('new', async (ctx) => {
+  ctx.session = INITIAL_SESSION;
+  await ctx.reply(code('Waiting for text or voice message'));
+});
+
+bot.command('start', async (ctx) => {
+  ctx.session = INITIAL_SESSION;
+  await ctx.reply(code('Waiting for text or voice message'));
+});
+
 bot.on(message('voice'), async (ctx) => {
+  ctx.session ??= INITIAL_SESSION;
   try {
     await ctx.reply(code('Waiting for voice message processing...'));
 
@@ -21,8 +38,14 @@ bot.on(message('voice'), async (ctx) => {
     await ctx.reply(`Your message: ${text}`);
     await ctx.reply(code('Waiting for server response...'));
 
-    const messages = [{ role: openai.roles.USER, content: text }];
-    const response = await openai.chat(messages);
+    ctx.session.messages.push({ role: openai.roles.USER, content: text });
+
+    const response = await openai.chat(ctx.session.messages);
+
+    ctx.session.messages.push({
+      role: openai.roles.ASSISTANT,
+      content: response.content,
+    });
 
     await ctx.reply(response.content);
   } catch (err) {
@@ -30,8 +53,24 @@ bot.on(message('voice'), async (ctx) => {
   }
 });
 
-bot.command('start', async (ctx) => {
-  await ctx.reply(JSON.stringify(ctx.message, null, 2));
+bot.on(message('text'), async (ctx) => {
+  try {
+    ctx.session.messages.push({
+      role: openai.roles.USER,
+      content: ctx.message.text,
+    });
+
+    const response = await openai.chat(ctx.session.messages);
+
+    ctx.session.messages.push({
+      role: openai.roles.ASSISTANT,
+      content: response.content,
+    });
+
+    await ctx.reply(response.content);
+  } catch (err) {
+    console.log('Error while text message', err.message);
+  }
 });
 
 bot.launch();
