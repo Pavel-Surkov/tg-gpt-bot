@@ -54,7 +54,10 @@ bot.on(message('voice'), async (ctx) => {
 });
 
 bot.on(message('text'), async (ctx) => {
+  ctx.session ??= INITIAL_SESSION;
   try {
+    await ctx.reply(code('Waiting for openai to response...'));
+
     ctx.session.messages.push({
       role: openai.roles.USER,
       content: ctx.message.text,
